@@ -32,8 +32,16 @@ def load_vgg(sess, vgg_path):
     vgg_layer3_out_tensor_name = 'layer3_out:0'
     vgg_layer4_out_tensor_name = 'layer4_out:0'
     vgg_layer7_out_tensor_name = 'layer7_out:0'
+
+    tf.saved_model.loader.load(sess, [vgg_tag], vgg_path)
+
+    image_input = tf.get_default_graph().get_tensor_by_name(vgg_input_tensor_name)
+    keep_prob = tf.get_default_graph().get_tensor_by_name(vgg_keep_prob_tensor_name)
+    layer3_out = tf.get_default_graph().get_tensor_by_name(vgg_layer3_out_tensor_name)
+    layer4_out = tf.get_default_graph().get_tensor_by_name(vgg_layer4_out_tensor_name)
+    layer7_out = tf.get_default_graph().get_tensor_by_name(vgg_layer7_out_tensor_name)
     
-    return None, None, None, None, None
+    return (image_input, keep_prob, layer3_out, layer4_out, layer7_out)
 tests.test_load_vgg(load_vgg, tf)
 
 
@@ -46,8 +54,23 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     :param num_classes: Number of classes to classify
     :return: The Tensor for the last layer of output
     """
-    # TODO: Implement function
-    return None
+    # One-to-one convolution
+    output = tf.layers.conv2d(vgg_layer7_out, 2048, 1, strides=(1,1))
+    print('One-to-one convolution output: ', output.get_shape().as_list())
+    output = tf.layers.conv2d_transpose(output, 512, 4, strides=(2, 2), padding="same")
+    print("First conv2d_transpose:", output.get_shape().as_list())
+    
+    print("vgg_layer4_out shape",vgg_layer4_out.get_shape().as_list())
+    output = tf.add(output, vgg_layer4_out)
+    output = tf.layers.conv2d_transpose(output, 256, 4, strides=(2, 2), padding="same")
+    
+#     print(output.get_shape().as_list())
+#     print(vgg_layer3_out.get_shape().as_list())
+    output = tf.add(output, vgg_layer3_out)
+    output = tf.layers.conv2d_transpose(output, num_classes, 16, strides=(8, 8), padding="same")
+    
+#     print(output.get_shape().as_list())
+    return output
 tests.test_layers(layers)
 
 
@@ -60,8 +83,10 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     :param num_classes: Number of classes to classify
     :return: Tuple of (logits, train_op, cross_entropy_loss)
     """
-    # TODO: Implement function
-    return None, None, None
+    logits = tf.reshape(nn_last_layer, (-1, num_classes))
+    cross_entropy_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=correct_label))
+    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cross_entropy_loss)
+    return logits, optimizer, cross_entropy_loss
 tests.test_optimize(optimize)
 
 
@@ -81,13 +106,24 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
     :param learning_rate: TF Placeholder for learning rate
     """
     # TODO: Implement function
-    pass
+    sess.run(tf.global_variables_initializer())
+    for e in range(epochs):
+        for x, y in get_batches_fn(batch_size):
+            feed = {input_image: x,
+                    correct_label: y,
+                    learning_rate:0.001,
+                    keep_prob: 0.6}
+            loss, _ = sess.run([cross_entropy_loss, train_op], feed_dict=feed)
+            print("Epoch: {}/{}".format(e+1, epochs),
+                  "Training loss: {:.5f}".format(loss))
 tests.test_train_nn(train_nn)
 
 
 def run():
     num_classes = 2
     image_shape = (160, 576)
+    epochs = 10
+    batch_size = 128
     data_dir = './data'
     runs_dir = './runs'
     tests.test_for_kitti_dataset(data_dir)
@@ -99,6 +135,9 @@ def run():
     # You'll need a GPU with at least 10 teraFLOPS to train on.
     #  https://www.cityscapes-dataset.com/
 
+    learning_rate = tf.placeholder(tf.float32, name='learning_rate')
+    correct_label = tf.placeholder(tf.float32, name='correct_label')
+    
     with tf.Session() as sess:
         # Path to vgg model
         vgg_path = os.path.join(data_dir, 'vgg')
@@ -109,13 +148,17 @@ def run():
         #  https://datascience.stackexchange.com/questions/5224/how-to-prepare-augment-images-for-neural-network
 
         # TODO: Build NN using load_vgg, layers, and optimize function
-
+        image_input, keep_prob, layer3_out, layer4_out, layer7_out = load_vgg(sess, vgg_path)
+        
+        nn_last_layer = layers(layer3_out, layer4_out, layer7_out, num_classes)
+        
+        logits, optimizer, cross_entropy_loss = optimize(nn_last_layer, correct_label, learning_rate, num_classes)
         # TODO: Train NN using the train_nn function
-
+        train_nn(sess, epochs, batch_size, get_batches_fn, optimizer, cross_entropy_loss, image_input,
+                 correct_label, keep_prob, learning_rate)
+        
         # TODO: Save inference data using helper.save_inference_samples
-        #  helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob, input_image)
-
-        # OPTIONAL: Apply the trained model to a video
+        helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob, image_input) 
 
 
 if __name__ == '__main__':
