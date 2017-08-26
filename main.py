@@ -55,21 +55,31 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     :return: The Tensor for the last layer of output
     """
     # One-to-one convolution
-    output = tf.layers.conv2d(vgg_layer7_out, 2048, 1, strides=(1,1))
-    print('One-to-one convolution output: ', output.get_shape().as_list())
-    output = tf.layers.conv2d_transpose(output, 512, 4, strides=(2, 2), padding="same")
-    print("First conv2d_transpose:", output.get_shape().as_list())
+    vgg_layer7 = tf.layers.conv2d(vgg_layer7_out, num_classes, 1, padding='SAME',
+                                  kernel_initializer=tf.truncated_normal_initializer(stddev = 0.01))
+
+    # similar for vgg_layer4 and vgg_layer3 taking the corresponding vgg_layer4_out and vgg_layer3_out
+
+    fcn_layer1 = tf.layers.conv2d_transpose(vgg_layer7, num_classes, 4, 2, 'SAME',
+                                              kernel_initializer=tf.truncated_normal_initializer(stddev = 0.01))
+
+    # 1on1 convolution and limit kernal to num_class
+    vgg_layer4 = tf.layers.conv2d(vgg_layer4_out, num_classes, 1, padding='SAME',
+                                  kernel_initializer=tf.truncated_normal_initializer(stddev = 0.01))
     
-    print("vgg_layer4_out shape",vgg_layer4_out.get_shape().as_list())
-    output = tf.add(output, vgg_layer4_out)
-    output = tf.layers.conv2d_transpose(output, 256, 4, strides=(2, 2), padding="same")
+    combined_layer1 = tf.add(vgg_layer4, fcn_layer1)
+
+    fcn_layer2 = tf.layers.conv2d_transpose(combined_layer1, num_classes, 4, 2, 'SAME',
+                                                kernel_initializer=tf.truncated_normal_initializer(stddev = 0.01))
+
+    # 1on1 convolution and limit kernal to num_class
+    vgg_layer3 = tf.layers.conv2d(vgg_layer3_out, num_classes, 1, padding='SAME',
+                                  kernel_initializer=tf.truncated_normal_initializer(stddev = 0.01))
     
-#     print(output.get_shape().as_list())
-#     print(vgg_layer3_out.get_shape().as_list())
-    output = tf.add(output, vgg_layer3_out)
-    output = tf.layers.conv2d_transpose(output, num_classes, 16, strides=(8, 8), padding="same")
-    
-#     print(output.get_shape().as_list())
+    combined_layer2 = tf.add(vgg_layer3, fcn_layer2)
+
+    output = tf.layers.conv2d_transpose(combined_layer2, num_classes, 16, 8, 'SAME',
+                                              kernel_initializer=tf.truncated_normal_initializer(stddev = 0.01))
     return output
 tests.test_layers(layers)
 
@@ -122,8 +132,8 @@ tests.test_train_nn(train_nn)
 def run():
     num_classes = 2
     image_shape = (160, 576)
-    epochs = 10
-    batch_size = 128
+    epochs = 5
+    batch_size = 16
     data_dir = './data'
     runs_dir = './runs'
     tests.test_for_kitti_dataset(data_dir)
@@ -158,7 +168,7 @@ def run():
                  correct_label, keep_prob, learning_rate)
         
         # TODO: Save inference data using helper.save_inference_samples
-        helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob, image_input) 
+        helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob, image_input)
 
 
 if __name__ == '__main__':
